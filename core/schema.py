@@ -2301,9 +2301,21 @@ class CreateTeacher(graphene.Mutation):
     @login_required
     def mutate(self, info, name, email, teacherId, # Use camelCase arguments
                phone=None, password=None, isActive=True, gender="M", addressId=None):
+        # --- Start Debug Logging ---
+        print("--- CreateTeacher Mutation --- ")
+        requesting_user = info.context.user
+        print(f"User authenticated: {requesting_user.is_authenticated}")
+        if hasattr(requesting_user, 'role'):
+            print(f"User role: {requesting_user.role}")
+        else:
+            print("User object does not have a 'role' attribute.")
+        if hasattr(requesting_user, 'institute'):
+             print(f"User institute: {requesting_user.institute}")
+        else:
+            print("User object does not have an 'institute' attribute.")
+        print("--- End Debug Logging ---")
+        # --- End Debug Logging ---
         try:
-            requesting_user = info.context.user
-
             # Ensure the user is an admin and has an associated institute
             if not requesting_user.is_authenticated or requesting_user.role != 'admin' or not requesting_user.institute:
                 return CreateTeacher(
