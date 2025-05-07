@@ -563,25 +563,25 @@ class Query(graphene.ObjectType):
             if not institute_exists:
                 print(f"Institute with ID {instituteId} does not exist")
                 return []
-            
-            # Filter classrooms
-            classrooms_query = Classroom.objects.filter(institute_id=instituteId)
+        
+        # Filter classrooms
+        classrooms_query = Classroom.objects.filter(institute_id=instituteId)
             
             # Apply class name filter if provided
-            if className and className != "All":
-                classrooms_query = classrooms_query.filter(class_name=className)
+        if className and className != "All":
+            classrooms_query = classrooms_query.filter(class_name=className)
             
             # Apply section filter if provided
-            if section and section != "All":
-                classrooms_query = classrooms_query.filter(section=section)
+        if section and section != "All":
+            classrooms_query = classrooms_query.filter(section=section)
             
-            # If no classrooms match the criteria, return empty results
-            if not classrooms_query.exists():
-                print(f"No classrooms found for instituteId: {instituteId}, className: {className}, section: {section}")
+        # If no classrooms match the criteria, return empty results
+        if not classrooms_query.exists():
+            print(f"No classrooms found for instituteId: {instituteId}, className: {className}, section: {section}")
                 return []
-            
-            # Get count for each classroom and category
-            for classroom in classrooms_query:
+        
+        # Get count for each classroom and category
+        for classroom in classrooms_query:
                 try:
                     # Ensure students have categories - this will fail if classroom is None
                     if classroom is None:
@@ -591,48 +591,48 @@ class Query(graphene.ObjectType):
                     # Debug info
                     print(f"Processing classroom: {classroom.id} - {classroom.class_name} {classroom.section}")
                     
-                    # Ensure students have categories
-                    self.ensure_student_categories(classroom)
-                    
+            # Ensure students have categories
+            self.ensure_student_categories(classroom)
+            
                     # Count students by category
-                    junior_scholars = Student.objects.filter(
-                        classroom=classroom,
-                        student_category='junior_scholars'
-                    ).count()
-                    
-                    rising_intellects = Student.objects.filter(
-                        classroom=classroom,
-                        student_category='rising_intellects'
-                    ).count()
-                    
-                    mastermind_elite = Student.objects.filter(
-                        classroom=classroom,
-                        student_category='mastermind_elite'
-                    ).count()
-                    
-                    # Create a StudentsByCategoryType object instead of a dictionary
-                    category_data = StudentsByCategoryType(
-                        class_name=classroom.class_name,
-                        section=classroom.section,
-                        junior_scholars=junior_scholars,
-                        rising_intellects=rising_intellects,
-                        mastermind_elite=mastermind_elite
-                    )
+            junior_scholars = Student.objects.filter(
+                classroom=classroom,
+                student_category='junior_scholars'
+            ).count()
+            
+            rising_intellects = Student.objects.filter(
+                classroom=classroom,
+                student_category='rising_intellects'
+            ).count()
+            
+            mastermind_elite = Student.objects.filter(
+                classroom=classroom,
+                student_category='mastermind_elite'
+            ).count()
+            
+            # Create a StudentsByCategoryType object instead of a dictionary
+            category_data = StudentsByCategoryType(
+                class_name=classroom.class_name,
+                section=classroom.section,
+                junior_scholars=junior_scholars,
+                rising_intellects=rising_intellects,
+                mastermind_elite=mastermind_elite
+            )
                     
                     # Set camelCase attributes directly to ensure they're accessible
                     category_data.juniorScholars = junior_scholars
                     category_data.risingIntellects = rising_intellects
                     category_data.mastermindElite = mastermind_elite
-                    
-                    results.append(category_data)
+            
+            results.append(category_data)
                     print(f"Added classroom data for {classroom.class_name} {classroom.section} with counts: JS={junior_scholars}, RI={rising_intellects}, ME={mastermind_elite}")
                 except Exception as e:
                     # Log any errors but continue with other classrooms
                     print(f"Error processing classroom {classroom.id if classroom else 'None'}: {str(e)}")
                     continue
-            
-            print(f"Returning {len(results)} classroom data points")
-            return results
+        
+        print(f"Returning {len(results)} classroom data points")
+        return results
         except Exception as e:
             # Log the error and return empty results
             print(f"Exception in resolve_students_by_category: {str(e)}")
@@ -666,74 +666,74 @@ class Query(graphene.ObjectType):
                     mastermind_elite=0
                 )
             
-            # Ensure all students have categories
-            classrooms = Classroom.objects.filter(institute_id=instituteId)
+        # Ensure all students have categories
+        classrooms = Classroom.objects.filter(institute_id=instituteId)
+        
+        # First check for students without categories across all institute classrooms
+        students_without_categories = Student.objects.filter(
+            institute_id=instituteId,
+            student_category__exact=''
+        )
+        
+        # Also check for null category values
+        students_with_null = Student.objects.filter(
+            institute_id=instituteId,
+            student_category__isnull=True
+        )
+        
+        # Log what we found
+        print(f"Found {students_without_categories.count()} students with empty category and {students_with_null.count()} with null category")
+        
+        # Assign random categories to students without categories
+        if students_without_categories.exists() or students_with_null.exists():
+            import random
+            categories = ['junior_scholars', 'rising_intellects', 'mastermind_elite']
             
-            # First check for students without categories across all institute classrooms
-            students_without_categories = Student.objects.filter(
-                institute_id=instituteId,
-                student_category__exact=''
-            )
+            # Process empty string categories
+            for student in students_without_categories:
+                student.student_category = random.choice(categories)
+                student.save()
+                print(f"Assigned {student.student_category} to student {student.name} (empty category)")
             
-            # Also check for null category values
-            students_with_null = Student.objects.filter(
-                institute_id=instituteId,
-                student_category__isnull=True
-            )
-            
-            # Log what we found
-            print(f"Found {students_without_categories.count()} students with empty category and {students_with_null.count()} with null category")
-            
-            # Assign random categories to students without categories
-            if students_without_categories.exists() or students_with_null.exists():
-                import random
-                categories = ['junior_scholars', 'rising_intellects', 'mastermind_elite']
-                
-                # Process empty string categories
-                for student in students_without_categories:
-                    student.student_category = random.choice(categories)
-                    student.save()
-                    print(f"Assigned {student.student_category} to student {student.name} (empty category)")
-                
-                # Process null categories
-                for student in students_with_null:
-                    student.student_category = random.choice(categories)
-                    student.save()
-                    print(f"Assigned {student.student_category} to student {student.name} (null category)")
-            
-            # Count student categories
-            junior_scholars = Student.objects.filter(
-                institute_id=instituteId,
-                student_category='junior_scholars'
-            ).count()
-            
-            rising_intellects = Student.objects.filter(
-                institute_id=instituteId,
-                student_category='rising_intellects'
-            ).count()
-            
-            mastermind_elite = Student.objects.filter(
-                institute_id=instituteId,
-                student_category='mastermind_elite'
-            ).count()
-            
-            print(f"Institute {instituteId} totals - Junior: {junior_scholars}, Rising: {rising_intellects}, Mastermind: {mastermind_elite}")
-            
-            # Create and return a StudentsByCategoryType object with both snake_case and camelCase fields
-            result = StudentsByCategoryType(
-                class_name='All',
-                section='All',
-                junior_scholars=junior_scholars,
-                rising_intellects=rising_intellects,
-                mastermind_elite=mastermind_elite
-            )
-            
-            # Set camelCase attributes directly to ensure they're accessible
-            result.juniorScholars = junior_scholars
-            result.risingIntellects = rising_intellects
-            result.mastermindElite = mastermind_elite
-            
-            return result
+            # Process null categories
+            for student in students_with_null:
+                student.student_category = random.choice(categories)
+                student.save()
+                print(f"Assigned {student.student_category} to student {student.name} (null category)")
+        
+        # Count student categories
+        junior_scholars = Student.objects.filter(
+            institute_id=instituteId,
+            student_category='junior_scholars'
+        ).count()
+        
+        rising_intellects = Student.objects.filter(
+            institute_id=instituteId,
+            student_category='rising_intellects'
+        ).count()
+        
+        mastermind_elite = Student.objects.filter(
+            institute_id=instituteId,
+            student_category='mastermind_elite'
+        ).count()
+        
+        print(f"Institute {instituteId} totals - Junior: {junior_scholars}, Rising: {rising_intellects}, Mastermind: {mastermind_elite}")
+        
+        # Create and return a StudentsByCategoryType object with both snake_case and camelCase fields
+        result = StudentsByCategoryType(
+            class_name='All',
+            section='All',
+            junior_scholars=junior_scholars,
+            rising_intellects=rising_intellects,
+            mastermind_elite=mastermind_elite
+        )
+        
+        # Set camelCase attributes directly to ensure they're accessible
+        result.juniorScholars = junior_scholars
+        result.risingIntellects = rising_intellects
+        result.mastermindElite = mastermind_elite
+        
+        return result
         except Exception as e:
             print(f"Exception in resolve_student_category_totals: {str(e)}")
             # Return empty results in case of error
