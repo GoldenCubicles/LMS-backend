@@ -89,11 +89,11 @@ WSGI_APPLICATION = 'lms_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.getenv('DB_NAME'),
+        'NAME': os.getenv('railway'),
         'USER': os.getenv('DB_USER'),
-        'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': os.getenv('DB_HOST'),
-        'PORT': os.getenv('DB_PORT'),
+        'PASSWORD': os.getenv('XepzpwZVLzbcnoDdSJeLuZmXOezJBOIp'),
+        'HOST': os.getenv('mysql.railway.internal'),
+        'PORT': os.getenv('3306'),
     }
 }
 

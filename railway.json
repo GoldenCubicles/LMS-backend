@@ -1,0 +1,12 @@
+{
+    "build": {
+      "commands": []
+    },
+    "deploy": {
+      "commands": [
+        "python manage.py migrate",
+        "python seed_mysql.py"
+      ]
+    }
+  }
+  
