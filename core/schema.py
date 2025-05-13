@@ -13,6 +13,7 @@ from datetime import timedelta
 from django.utils import timezone
 from graphene_django.filter import DjangoFilterConnectionField
 import django_filters
+from django.db import connection
 
 User = get_user_model()
 
@@ -393,10 +394,10 @@ class Query(graphene.ObjectType):
     # Course and ClassSubject queries
     subjects = graphene.List(SubjectType)
     class_subjects = graphene.List(
-        ClassSubjectType,
-        teacher_id=graphene.ID(),
-        classroom_id=graphene.ID(),
-        institute_id=graphene.ID()
+        ClassSubjectType, 
+        classroomId=graphene.ID(),
+        instituteId=graphene.ID(),
+        teacherId=graphene.ID()
     )
     courses = graphene.List(
         CourseType,
@@ -432,6 +433,20 @@ class Query(graphene.ObjectType):
         student_id=graphene.ID(required=True),
         course_id=graphene.ID(required=True)
     )
+    
+    def resolve_class_subjects(self, info, classroomId=None, instituteId=None, teacherId=None):
+        query = ClassSubject.objects.all()
+        
+        if classroomId:
+            query = query.filter(classroom_id=classroomId)
+        
+        if instituteId:
+            query = query.filter(institute_id=instituteId)
+        
+        if teacherId:
+            query = query.filter(teacher_id=teacherId)
+        
+        return query
 
     @login_required
     def resolve_me(self, info):
@@ -563,25 +578,25 @@ class Query(graphene.ObjectType):
             if not institute_exists:
                 print(f"Institute with ID {instituteId} does not exist")
                 return []
-        
-        # Filter classrooms
-        classrooms_query = Classroom.objects.filter(institute_id=instituteId)
+            
+            # Filter classrooms
+            classrooms_query = Classroom.objects.filter(institute_id=instituteId)
             
             # Apply class name filter if provided
-        if className and className != "All":
-            classrooms_query = classrooms_query.filter(class_name=className)
+            if className and className != "All":
+                classrooms_query = classrooms_query.filter(class_name=className)
             
             # Apply section filter if provided
-        if section and section != "All":
-            classrooms_query = classrooms_query.filter(section=section)
+            if section and section != "All":
+                classrooms_query = classrooms_query.filter(section=section)
             
-        # If no classrooms match the criteria, return empty results
-        if not classrooms_query.exists():
-            print(f"No classrooms found for instituteId: {instituteId}, className: {className}, section: {section}")
+            # If no classrooms match the criteria, return empty results
+            if not classrooms_query.exists():
+                print(f"No classrooms found for instituteId: {instituteId}, className: {className}, section: {section}")
                 return []
-        
-        # Get count for each classroom and category
-        for classroom in classrooms_query:
+            
+            # Get count for each classroom and category
+            for classroom in classrooms_query:
                 try:
                     # Ensure students have categories - this will fail if classroom is None
                     if classroom is None:
@@ -591,48 +606,48 @@ class Query(graphene.ObjectType):
                     # Debug info
                     print(f"Processing classroom: {classroom.id} - {classroom.class_name} {classroom.section}")
                     
-            # Ensure students have categories
-            self.ensure_student_categories(classroom)
-            
+                    # Ensure students have categories
+                    self.ensure_student_categories(classroom)
+                    
                     # Count students by category
-            junior_scholars = Student.objects.filter(
-                classroom=classroom,
-                student_category='junior_scholars'
-            ).count()
-            
-            rising_intellects = Student.objects.filter(
-                classroom=classroom,
-                student_category='rising_intellects'
-            ).count()
-            
-            mastermind_elite = Student.objects.filter(
-                classroom=classroom,
-                student_category='mastermind_elite'
-            ).count()
-            
-            # Create a StudentsByCategoryType object instead of a dictionary
-            category_data = StudentsByCategoryType(
-                class_name=classroom.class_name,
-                section=classroom.section,
-                junior_scholars=junior_scholars,
-                rising_intellects=rising_intellects,
-                mastermind_elite=mastermind_elite
-            )
+                    junior_scholars = Student.objects.filter(
+                        classroom=classroom,
+                        student_category='junior_scholars'
+                    ).count()
+                    
+                    rising_intellects = Student.objects.filter(
+                        classroom=classroom,
+                        student_category='rising_intellects'
+                    ).count()
+                    
+                    mastermind_elite = Student.objects.filter(
+                        classroom=classroom,
+                        student_category='mastermind_elite'
+                    ).count()
+                    
+                    # Create a StudentsByCategoryType object instead of a dictionary
+                    category_data = StudentsByCategoryType(
+                        class_name=classroom.class_name,
+                        section=classroom.section,
+                        junior_scholars=junior_scholars,
+                        rising_intellects=rising_intellects,
+                        mastermind_elite=mastermind_elite
+                    )
                     
                     # Set camelCase attributes directly to ensure they're accessible
                     category_data.juniorScholars = junior_scholars
                     category_data.risingIntellects = rising_intellects
                     category_data.mastermindElite = mastermind_elite
-            
-            results.append(category_data)
+                    
+                    results.append(category_data)
                     print(f"Added classroom data for {classroom.class_name} {classroom.section} with counts: JS={junior_scholars}, RI={rising_intellects}, ME={mastermind_elite}")
                 except Exception as e:
                     # Log any errors but continue with other classrooms
                     print(f"Error processing classroom {classroom.id if classroom else 'None'}: {str(e)}")
                     continue
-        
-        print(f"Returning {len(results)} classroom data points")
-        return results
+            
+            print(f"Returning {len(results)} classroom data points")
+            return results
         except Exception as e:
             # Log the error and return empty results
             print(f"Exception in resolve_students_by_category: {str(e)}")
@@ -666,74 +681,74 @@ class Query(graphene.ObjectType):
                     mastermind_elite=0
                 )
             
-        # Ensure all students have categories
-        classrooms = Classroom.objects.filter(institute_id=instituteId)
-        
-        # First check for students without categories across all institute classrooms
-        students_without_categories = Student.objects.filter(
-            institute_id=instituteId,
-            student_category__exact=''
-        )
-        
-        # Also check for null category values
-        students_with_null = Student.objects.filter(
-            institute_id=instituteId,
-            student_category__isnull=True
-        )
-        
-        # Log what we found
-        print(f"Found {students_without_categories.count()} students with empty category and {students_with_null.count()} with null category")
-        
-        # Assign random categories to students without categories
-        if students_without_categories.exists() or students_with_null.exists():
-            import random
-            categories = ['junior_scholars', 'rising_intellects', 'mastermind_elite']
+            # Ensure all students have categories
+            classrooms = Classroom.objects.filter(institute_id=instituteId)
             
-            # Process empty string categories
-            for student in students_without_categories:
-                student.student_category = random.choice(categories)
-                student.save()
-                print(f"Assigned {student.student_category} to student {student.name} (empty category)")
+            # First check for students without categories across all institute classrooms
+            students_without_categories = Student.objects.filter(
+                institute_id=instituteId,
+                student_category__exact=''
+            )
             
-            # Process null categories
-            for student in students_with_null:
-                student.student_category = random.choice(categories)
-                student.save()
-                print(f"Assigned {student.student_category} to student {student.name} (null category)")
-        
-        # Count student categories
-        junior_scholars = Student.objects.filter(
-            institute_id=instituteId,
-            student_category='junior_scholars'
-        ).count()
-        
-        rising_intellects = Student.objects.filter(
-            institute_id=instituteId,
-            student_category='rising_intellects'
-        ).count()
-        
-        mastermind_elite = Student.objects.filter(
-            institute_id=instituteId,
-            student_category='mastermind_elite'
-        ).count()
-        
-        print(f"Institute {instituteId} totals - Junior: {junior_scholars}, Rising: {rising_intellects}, Mastermind: {mastermind_elite}")
-        
-        # Create and return a StudentsByCategoryType object with both snake_case and camelCase fields
-        result = StudentsByCategoryType(
-            class_name='All',
-            section='All',
-            junior_scholars=junior_scholars,
-            rising_intellects=rising_intellects,
-            mastermind_elite=mastermind_elite
-        )
-        
-        # Set camelCase attributes directly to ensure they're accessible
-        result.juniorScholars = junior_scholars
-        result.risingIntellects = rising_intellects
-        result.mastermindElite = mastermind_elite
-        
-        return result
+            # Also check for null category values
+            students_with_null = Student.objects.filter(
+                institute_id=instituteId,
+                student_category__isnull=True
+            )
+            
+            # Log what we found
+            print(f"Found {students_without_categories.count()} students with empty category and {students_with_null.count()} with null category")
+            
+            # Assign random categories to students without categories
+            if students_without_categories.exists() or students_with_null.exists():
+                import random
+                categories = ['junior_scholars', 'rising_intellects', 'mastermind_elite']
+                
+                # Process empty string categories
+                for student in students_without_categories:
+                    student.student_category = random.choice(categories)
+                    student.save()
+                    print(f"Assigned {student.student_category} to student {student.name} (empty category)")
+                
+                # Process null categories
+                for student in students_with_null:
+                    student.student_category = random.choice(categories)
+                    student.save()
+                    print(f"Assigned {student.student_category} to student {student.name} (null category)")
+            
+            # Count student categories
+            junior_scholars = Student.objects.filter(
+                institute_id=instituteId,
+                student_category='junior_scholars'
+            ).count()
+            
+            rising_intellects = Student.objects.filter(
+                institute_id=instituteId,
+                student_category='rising_intellects'
+            ).count()
+            
+            mastermind_elite = Student.objects.filter(
+                institute_id=instituteId,
+                student_category='mastermind_elite'
+            ).count()
+            
+            print(f"Institute {instituteId} totals - Junior: {junior_scholars}, Rising: {rising_intellects}, Mastermind: {mastermind_elite}")
+            
+            # Create and return a StudentsByCategoryType object with both snake_case and camelCase fields
+            result = StudentsByCategoryType(
+                class_name='All',
+                section='All',
+                junior_scholars=junior_scholars,
+                rising_intellects=rising_intellects,
+                mastermind_elite=mastermind_elite
+            )
+            
+            # Set camelCase attributes directly to ensure they're accessible
+            result.juniorScholars = junior_scholars
+            result.risingIntellects = rising_intellects
+            result.mastermindElite = mastermind_elite
+            
+            return result
         except Exception as e:
             print(f"Exception in resolve_student_category_totals: {str(e)}")
             # Return empty results in case of error
@@ -805,20 +820,6 @@ class Query(graphene.ObjectType):
 
     def resolve_subjects(self, info):
         return Subject.objects.all()
-    
-    def resolve_class_subjects(self, info, teacher_id=None, classroom_id=None, institute_id=None):
-        query = ClassSubject.objects.all()
-        
-        if teacher_id:
-            query = query.filter(teacher_id=teacher_id)
-        
-        if classroom_id:
-            query = query.filter(classroom_id=classroom_id)
-        
-        if institute_id:
-            query = query.filter(institute_id=institute_id)
-        
-        return query
     
     def resolve_courses(self, info, teacher_id=None, class_subject_id=None, institute_id=None):
         query = Course.objects.all()
@@ -2287,6 +2288,7 @@ class CreateTeacher(graphene.Mutation):
         name = graphene.String(required=True)
         email = graphene.String(required=True)
         teacherId = graphene.String(required=True) # Use camelCase
+        teacherCode = graphene.String() # Add for backward compatibility
         phone = graphene.String()
         password = graphene.String()
         isActive = graphene.Boolean(default_value=True) # Use camelCase
@@ -2301,21 +2303,9 @@ class CreateTeacher(graphene.Mutation):
     @login_required
     def mutate(self, info, name, email, teacherId, # Use camelCase arguments
                phone=None, password=None, isActive=True, gender="M", addressId=None):
-        # --- Start Debug Logging ---
-        print("--- CreateTeacher Mutation --- ")
-        requesting_user = info.context.user
-        print(f"User authenticated: {requesting_user.is_authenticated}")
-        if hasattr(requesting_user, 'role'):
-            print(f"User role: {requesting_user.role}")
-        else:
-            print("User object does not have a 'role' attribute.")
-        if hasattr(requesting_user, 'institute'):
-             print(f"User institute: {requesting_user.institute}")
-        else:
-            print("User object does not have an 'institute' attribute.")
-        print("--- End Debug Logging ---")
-        # --- End Debug Logging ---
         try:
+            requesting_user = info.context.user
+
             # Ensure the user is an admin and has an associated institute
             if not requesting_user.is_authenticated or requesting_user.role != 'admin' or not requesting_user.institute:
                 return CreateTeacher(
@@ -2369,19 +2359,42 @@ class CreateTeacher(graphene.Mutation):
                         error="Address not found"
                     )
 
-            # Create the teacher
-            # WARNING: Storing plain text password. Use Django's password hashing in production.
-            teacher = Teacher.objects.create(
-                name=name,
-                email=email,
-                teacher_id=teacherId, # Use camelCase teacherId variable
-                phone=phone,
-                password=password, # Store hashed password in real app
-                is_active=isActive, # Use camelCase isActive variable
-                gender=gender,
-                institute=institute,
-                address=address
-            )
+            # Debug log
+            print(f"Creating teacher with: name={name}, email={email}, teacher_id={teacherId}, phone={phone}, gender={gender}, is_active={isActive}")
+            
+            # Create the teacher using a raw SQL query to populate both teacher_id and teacher_code fields
+            try:
+                # First create the teacher object
+                teacher = Teacher.objects.create(
+                    name=name,
+                    email=email,
+                    teacher_id=teacherId,
+                    teacher_code=teacherId,
+                    phone=phone,
+                    password=password,
+                    is_active=isActive,
+                    gender=gender,
+                    institute=institute,
+                    address=address
+                )
+                
+                # Then update the teacher_code field with raw SQL
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE core_teacher SET teacher_code = %s WHERE id = %s",
+                        [teacherId, teacher.id]
+                    )
+                
+                # Refresh from database to ensure all fields are updated
+                teacher.refresh_from_db()
+                
+            except Exception as e:
+                print(f"Error creating teacher object: {str(e)}")
+                return CreateTeacher(
+                    teacher=None,
+                    success=False,
+                    error=f"Database error: {str(e)}"
+                )
 
             print(f"Created teacher: {name} (ID: {teacher.id}) for institute {institute.name}")
 
@@ -2405,11 +2418,11 @@ class CreateStudent(graphene.Mutation):
         name = graphene.String(required=True)
         # Removed email argument
         password = graphene.String(required=True)
-        roll_number = graphene.String(required=True)
-        classroom_id = graphene.ID(required=True)
-        student_category = graphene.String(default_value='junior_scholars')
+        rollNumber = graphene.String(required=True)
+        classroomId = graphene.ID(required=True)
+        studentCategory = graphene.String(default_value='junior_scholars')
         gender = graphene.String(default_value='other')
-        address_id = graphene.ID()
+        addressId = graphene.ID()
         # institute_id is derived from the logged-in admin user
 
     student = graphene.Field(StudentType)
@@ -2417,8 +2430,8 @@ class CreateStudent(graphene.Mutation):
     error = graphene.String()
 
     @login_required
-    def mutate(self, info, name, password, roll_number, classroom_id, # Removed email from signature
-               student_category='junior_scholars', gender='other', address_id=None):
+    def mutate(self, info, name, password, rollNumber, classroomId, # Renamed parameters to camelCase
+               studentCategory='junior_scholars', gender='other', addressId=None):
         try:
             requesting_user = info.context.user
 
@@ -2428,53 +2441,49 @@ class CreateStudent(graphene.Mutation):
 
             institute = requesting_user.institute
 
-            # Removed email validation
-
             # Validate gender
             if gender not in [choice[0] for choice in Student.STUDENT_GENDER]:
                 return CreateStudent(success=False, error="Invalid gender value")
 
             # Validate category
-            if student_category not in [choice[0] for choice in Student.STUDENT_CATEGORY]:
+            if studentCategory not in [choice[0] for choice in Student.STUDENT_CATEGORY]:
                  return CreateStudent(success=False, error="Invalid student category")
 
             # Check for existing roll number within the institute
-            if Student.objects.filter(roll_number=roll_number, institute=institute).exists():
+            if Student.objects.filter(roll_number=rollNumber, institute=institute).exists():
                 return CreateStudent(success=False, error="Roll number already exists in this institute")
-            
-            # Check for existing email within the institute (if email should be unique per institute)
-            # if Student.objects.filter(email=email, institute=institute).exists():
-            #     return CreateStudent(success=False, error="Email already exists for a student in this institute")
 
             # Get Classroom (ensure it belongs to the admin's institute)
             try:
-                classroom = Classroom.objects.get(id=classroom_id, institute=institute)
+                classroom = Classroom.objects.get(id=classroomId, institute=institute)
             except Classroom.DoesNotExist:
                 return CreateStudent(success=False, error="Classroom not found or does not belong to this institute")
 
             # Get Address if provided
             address = None
-            if address_id:
+            if addressId:
                 try:
-                    address = Address.objects.get(id=address_id)
+                    address = Address.objects.get(id=addressId)
                 except Address.DoesNotExist:
                     return CreateStudent(success=False, error="Address not found")
+            
+            # Debug log for troubleshooting
+            print(f"Creating student with name={name}, roll_number={rollNumber}, classroom_id={classroomId}, student_category={studentCategory}, gender={gender}")
 
             # Create the student
             # WARNING: Storing plain text password. Use hashing.
             student = Student.objects.create(
                 name=name,
-                # Removed email field
                 password=password, # Store hashed password in real app
-                roll_number=roll_number,
+                roll_number=rollNumber,
                 classroom=classroom,
-                student_category=student_category,
+                student_category=studentCategory,
                 gender=gender,
                 institute=institute,
                 address=address
             )
 
-            print(f"Created student: {name} (Roll: {roll_number}) for institute {institute.name}")
+            print(f"Created student: {name} (Roll: {rollNumber}) for institute {institute.name}")
 
             return CreateStudent(
                 student=student,
@@ -2491,21 +2500,20 @@ class UpdateStudent(graphene.Mutation):
     class Arguments:
         id = graphene.ID(required=True)
         name = graphene.String()
-        # Removed email argument
         password = graphene.String() # Optional password change
-        roll_number = graphene.String()
-        classroom_id = graphene.ID()
-        student_category = graphene.String()
+        rollNumber = graphene.String()
+        classroomId = graphene.ID()
+        studentCategory = graphene.String()
         gender = graphene.String()
-        address_id = graphene.ID()
+        addressId = graphene.ID()
 
     student = graphene.Field(StudentType)
     success = graphene.Boolean()
     error = graphene.String()
 
     @login_required
-    def mutate(self, info, id, name=None, password=None, roll_number=None, # Removed email from signature
-               classroom_id=None, student_category=None, gender=None, address_id=None):
+    def mutate(self, info, id, name=None, password=None, rollNumber=None,
+               classroomId=None, studentCategory=None, gender=None, addressId=None):
         try:
             requesting_user = info.context.user
             if not requesting_user.is_authenticated or requesting_user.role != 'admin' or not requesting_user.institute:
@@ -2523,43 +2531,40 @@ class UpdateStudent(graphene.Mutation):
             if name is not None:
                 student.name = name
 
-            # Removed email update logic
-
             if password:
                 # Use proper password hashing
                 student.password = password # WARNING: Plain text password
 
-            if roll_number is not None and roll_number != student.roll_number:
-                if Student.objects.filter(roll_number=roll_number, institute=institute).exclude(id=id).exists():
+            if rollNumber is not None and rollNumber != student.roll_number:
+                if Student.objects.filter(roll_number=rollNumber, institute=institute).exclude(id=id).exists():
                     return UpdateStudent(success=False, error="Roll number already exists")
-                student.roll_number = roll_number
+                student.roll_number = rollNumber
 
-            if classroom_id:
+            if classroomId:
                 try:
-                    classroom = Classroom.objects.get(id=classroom_id, institute=institute)
+                    classroom = Classroom.objects.get(id=classroomId, institute=institute)
                     student.classroom = classroom
                 except Classroom.DoesNotExist:
                     return UpdateStudent(success=False, error="Classroom not found or does not belong to this institute")
 
-            if student_category:
-                if student_category not in [choice[0] for choice in Student.STUDENT_CATEGORY]:
+            if studentCategory:
+                if studentCategory not in [choice[0] for choice in Student.STUDENT_CATEGORY]:
                      return UpdateStudent(success=False, error="Invalid student category")
-                student.student_category = student_category
+                student.student_category = studentCategory
 
             if gender:
                 if gender not in [choice[0] for choice in Student.STUDENT_GENDER]:
                     return UpdateStudent(success=False, error="Invalid gender value")
                 student.gender = gender
 
-            if address_id:
+            if addressId:
                 try:
-                    address = Address.objects.get(id=address_id)
+                    address = Address.objects.get(id=addressId)
                     student.address = address
                 except Address.DoesNotExist:
                     return UpdateStudent(success=False, error="Address not found")
-            elif address_id is None and name is None and password is None and roll_number is None and classroom_id is None and student_category is None and gender is None:
+            elif addressId is None and name is None and password is None and rollNumber is None and classroomId is None and studentCategory is None and gender is None:
                  # Allow clearing address only if it's the only operation
-                 # Removed email from condition above
                  student.address = None
 
             student.save()
@@ -2603,6 +2608,289 @@ class DeleteStudent(graphene.Mutation):
             print(f"Error deleting student: {str(e)}")
             return DeleteStudent(success=False, message=f"An unexpected error occurred: {str(e)}")
 
+class CreateClassroom(graphene.Mutation):
+    class Arguments:
+        className = graphene.String(required=True)
+        section = graphene.String(required=True)
+        classTeacherId = graphene.ID(required=True)
+        academicYear = graphene.Int(required=True)
+
+    classroom = graphene.Field(ClassroomType)
+    success = graphene.Boolean()
+    error = graphene.String()
+
+    @login_required
+    def mutate(self, info, className, section, classTeacherId, academicYear):
+        try:
+            requesting_user = info.context.user
+
+            # Authorization check
+            if not requesting_user.is_authenticated or requesting_user.role != 'admin' or not requesting_user.institute:
+                return CreateClassroom(
+                    classroom=None,
+                    success=False,
+                    error="Unauthorized: Admin privileges required."
+                )
+
+            institute = requesting_user.institute
+
+            # Get teacher if provided
+            try:
+                teacher = Teacher.objects.get(id=classTeacherId, institute=institute)
+            except Teacher.DoesNotExist:
+                return CreateClassroom(
+                    classroom=None,
+                    success=False,
+                    error="Teacher not found or does not belong to this institute"
+                )
+
+            # Create the classroom
+            classroom = Classroom.objects.create(
+                class_name=className,
+                section=section,
+                class_teacher=teacher,
+                institute=institute,
+                academic_year=academicYear
+            )
+
+            print(f"Created classroom: {className} {section} with teacher {teacher.name} for institute {institute.name}")
+
+            return CreateClassroom(
+                classroom=classroom,
+                success=True,
+                error=None
+            )
+        except Exception as e:
+            print(f"Error creating classroom: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return CreateClassroom(
+                classroom=None,
+                success=False,
+                error=f"An unexpected error occurred: {str(e)}"
+            )
+
+class UpdateClassroom(graphene.Mutation):
+    class Arguments:
+        id = graphene.ID(required=True)
+        className = graphene.String()
+        section = graphene.String()
+        classTeacherId = graphene.ID()
+        academicYear = graphene.Int()
+
+    classroom = graphene.Field(ClassroomType)
+    success = graphene.Boolean()
+    error = graphene.String()
+
+    @login_required
+    def mutate(self, info, id, className=None, section=None, classTeacherId=None, academicYear=None):
+        try:
+            requesting_user = info.context.user
+
+            # Authorization check
+            if not requesting_user.is_authenticated or requesting_user.role != 'admin' or not requesting_user.institute:
+                return UpdateClassroom(
+                    classroom=None,
+                    success=False,
+                    error="Unauthorized: Admin privileges required."
+                )
+
+            institute = requesting_user.institute
+
+            # Get classroom
+            try:
+                classroom = Classroom.objects.get(id=id, institute=institute)
+            except Classroom.DoesNotExist:
+                return UpdateClassroom(
+                    classroom=None,
+                    success=False,
+                    error="Classroom not found or does not belong to this institute"
+                )
+
+            # Update fields if provided
+            if className is not None:
+                classroom.class_name = className
+            
+            if section is not None:
+                classroom.section = section
+            
+            if academicYear is not None:
+                classroom.academic_year = academicYear
+            
+            if classTeacherId:
+                try:
+                    teacher = Teacher.objects.get(id=classTeacherId, institute=institute)
+                    classroom.class_teacher = teacher
+                except Teacher.DoesNotExist:
+                    return UpdateClassroom(
+                        classroom=None,
+                        success=False,
+                        error="Teacher not found or does not belong to this institute"
+                    )
+
+            classroom.save()
+            print(f"Updated classroom: ID {classroom.id}, Name: {classroom.class_name} {classroom.section}")
+            
+            return UpdateClassroom(
+                classroom=classroom,
+                success=True,
+                error=None
+            )
+        except Exception as e:
+            print(f"Error updating classroom: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return UpdateClassroom(
+                classroom=None,
+                success=False,
+                error=f"An unexpected error occurred: {str(e)}"
+            )
+
+class DeleteClassroom(graphene.Mutation):
+    class Arguments:
+        id = graphene.ID(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    @login_required
+    def mutate(self, info, id):
+        try:
+            requesting_user = info.context.user
+
+            # Authorization check
+            if not requesting_user.is_authenticated or requesting_user.role != 'admin' or not requesting_user.institute:
+                return DeleteClassroom(
+                    success=False,
+                    message="Unauthorized: Admin privileges required."
+                )
+
+            institute = requesting_user.institute
+
+            # Get classroom
+            try:
+                classroom = Classroom.objects.get(id=id, institute=institute)
+            except Classroom.DoesNotExist:
+                return DeleteClassroom(
+                    success=False,
+                    message="Classroom not found or does not belong to this institute"
+                )
+
+            # Check if classroom has students
+            student_count = Student.objects.filter(classroom=classroom).count()
+            if student_count > 0:
+                return DeleteClassroom(
+                    success=False,
+                    message=f"Cannot delete classroom with {student_count} students. Please move or delete the students first."
+                )
+
+            # Store info for logging
+            classroom_info = f"ID: {classroom.id}, Name: {classroom.class_name} {classroom.section}"
+            
+            # Delete classroom
+            classroom.delete()
+            
+            print(f"Deleted classroom: {classroom_info}")
+            
+            return DeleteClassroom(
+                success=True,
+                message="Classroom deleted successfully"
+            )
+        except Exception as e:
+            print(f"Error deleting classroom: {str(e)}")
+            return DeleteClassroom(
+                success=False,
+                message=f"An unexpected error occurred: {str(e)}"
+            )
+
+class CreateClassSubject(graphene.Mutation):
+    class Arguments:
+        classroomId = graphene.ID(required=True)
+        subjectId = graphene.ID(required=True)
+        teacherId = graphene.ID(required=True)
+
+    classSubject = graphene.Field(ClassSubjectType)
+    success = graphene.Boolean()
+    error = graphene.String()
+
+    @login_required
+    def mutate(self, info, classroomId, subjectId, teacherId):
+        try:
+            requesting_user = info.context.user
+
+            # Authorization check
+            if not requesting_user.is_authenticated or requesting_user.role != 'admin' or not requesting_user.institute:
+                return CreateClassSubject(
+                    classSubject=None,
+                    success=False,
+                    error="Unauthorized: Admin privileges required."
+                )
+
+            institute = requesting_user.institute
+
+            # Get classroom
+            try:
+                classroom = Classroom.objects.get(id=classroomId, institute=institute)
+            except Classroom.DoesNotExist:
+                return CreateClassSubject(
+                    classSubject=None,
+                    success=False,
+                    error="Classroom not found or does not belong to this institute"
+                )
+
+            # Get subject
+            try:
+                subject = Subject.objects.get(id=subjectId)
+            except Subject.DoesNotExist:
+                return CreateClassSubject(
+                    classSubject=None,
+                    success=False,
+                    error="Subject not found"
+                )
+
+            # Get teacher
+            try:
+                teacher = Teacher.objects.get(id=teacherId, institute=institute)
+            except Teacher.DoesNotExist:
+                return CreateClassSubject(
+                    classSubject=None,
+                    success=False,
+                    error="Teacher not found or does not belong to this institute"
+                )
+
+            # Check if the class subject already exists
+            if ClassSubject.objects.filter(classroom=classroom, subject=subject, institute=institute).exists():
+                return CreateClassSubject(
+                    classSubject=None,
+                    success=False,
+                    error="This subject is already assigned to this classroom"
+                )
+
+            # Create class subject
+            class_subject = ClassSubject.objects.create(
+                classroom=classroom,
+                subject=subject,
+                teacher=teacher,
+                institute=institute
+            )
+
+            print(f"Created class subject: {subject.name} for classroom {classroom.class_name} {classroom.section} with teacher {teacher.name}")
+
+            return CreateClassSubject(
+                classSubject=class_subject,
+                success=True,
+                error=None
+            )
+        except Exception as e:
+            print(f"Error creating class subject: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return CreateClassSubject(
+                classSubject=None,
+                success=False,
+                error=f"An unexpected error occurred: {str(e)}"
+            )
+
 class Mutation(graphene.ObjectType):
     create_user = CreateUser.Field()
     create_admin_user = CreateAdminUser.Field()
@@ -2637,5 +2925,11 @@ class Mutation(graphene.ObjectType):
     create_student = CreateStudent.Field()
     update_student = UpdateStudent.Field()
     delete_student = DeleteStudent.Field()
+    
+    # Add classroom management mutations
+    create_classroom = CreateClassroom.Field()
+    update_classroom = UpdateClassroom.Field()
+    delete_classroom = DeleteClassroom.Field()
+    create_class_subject = CreateClassSubject.Field()
 
 schema = graphene.Schema(query=Query, mutation=Mutation) 
